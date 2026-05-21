@@ -1292,6 +1292,7 @@ impl Instance {
             }
 
             self.apply_session_flags(&mut tool_cmd, "sandboxed");
+            apply_agent_launch_env(&mut tool_cmd, agent);
 
             let sandbox = self
                 .sandbox_info
@@ -1483,6 +1484,7 @@ impl Instance {
                     }
                 }
                 self.apply_session_flags(&mut cmd, "host agent");
+                apply_agent_launch_env(&mut cmd, agent);
                 wrap_command_ignore_suspend(&format!("{}{}", env_prefix, cmd))
             })
         } else {
@@ -1496,6 +1498,7 @@ impl Instance {
                 }
             }
             self.apply_session_flags(&mut cmd, "host custom");
+            apply_agent_launch_env(&mut cmd, agent);
             Some(wrap_command_ignore_suspend(&format!(
                 "{}{}",
                 env_prefix, cmd
@@ -2573,6 +2576,14 @@ fn truncate_error_line(line: &str) -> String {
 fn format_env_var_prefix(key: &str, value: &str, cmd: &str) -> String {
     let escaped = shell_escape(value);
     format!("{}={} {}", key, escaped, cmd)
+}
+
+fn apply_agent_launch_env(cmd: &mut String, agent: Option<&'static crate::agents::AgentDef>) {
+    if !matches!(agent.map(|a| a.name), Some("antigravity")) {
+        return;
+    }
+
+    *cmd = format!("env -u NO_COLOR FORCE_COLOR=1 COLORTERM=truecolor {}", cmd);
 }
 
 /// Wrap a command to disable Ctrl-Z (SIGTSTP) suspension.
@@ -3767,6 +3778,31 @@ mod tests {
         let cmd_str = cmd.unwrap();
         assert!(cmd_str.contains("ses_abc123def456"));
         assert!(cmd_str.contains("--session-id") || cmd_str.contains("--resume"));
+    }
+
+    #[test]
+    fn test_build_host_command_antigravity_forces_color() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "antigravity".to_string();
+        let cmd = inst.build_host_command(crate::agents::get_agent("antigravity"), &None);
+        let cmd_str = cmd.unwrap();
+
+        assert!(cmd_str.contains("env -u NO_COLOR"));
+        assert!(cmd_str.contains("FORCE_COLOR=1"));
+        assert!(cmd_str.contains("COLORTERM=truecolor"));
+        assert!(cmd_str.contains("agy"));
+    }
+
+    #[test]
+    fn test_build_host_command_color_env_is_antigravity_only() {
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "codex".to_string();
+        let cmd = inst.build_host_command(crate::agents::get_agent("codex"), &None);
+        let cmd_str = cmd.unwrap();
+
+        assert!(!cmd_str.contains("env -u NO_COLOR"));
+        assert!(!cmd_str.contains("FORCE_COLOR=1"));
+        assert!(!cmd_str.contains("COLORTERM=truecolor"));
     }
 
     #[test]
